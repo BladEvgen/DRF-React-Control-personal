@@ -190,7 +190,7 @@ const MapPage: React.FC = () => {
   };
 
   const customIcon = L.icon({
-    iconUrl: "../src/assets/marker.png",
+    iconUrl: `${apiUrl}/media/marker.png`,
     iconSize: [35, 40],
     iconAnchor: [17, 35],
     popupAnchor: [0, -40],

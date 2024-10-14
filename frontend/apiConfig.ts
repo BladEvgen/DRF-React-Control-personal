@@ -1,4 +1,4 @@
-export const isDebug = true;
+export const isDebug = false;
 
 const localHostname = window.location.hostname;
 export const apiUrl = isDebug

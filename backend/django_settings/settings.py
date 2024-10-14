@@ -46,8 +46,8 @@ else:
     ALLOWED_HOSTS = ["control.krmu.edu.kz", "dot.medkrmu.kz", "localhost", "127.0.0.1"]
 
 
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10 МБ
-FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760  # 10 МБ
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 МБ
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50 МБ
 
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 100000
 
@@ -192,6 +192,8 @@ STATICFILES_DIRS = [
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "static/media"
 
+ATTENDANCE_URL = "/attendance_media/"
+ATTENDANCE_ROOT = "/mnt/disk/control_image/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
