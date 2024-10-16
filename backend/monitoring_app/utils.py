@@ -25,9 +25,164 @@ from django.utils.translation import gettext_lazy as _
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.styles import Alignment, Font, PatternFill
 
+import cv2
+import torch
+import logging
+import numpy as np
+from insightface.app import FaceAnalysis
+from sklearn.metrics.pairwise import cosine_similarity
+
+
 from monitoring_app import models
+from rest_framework.exceptions import ValidationError
 
 DAYS = settings.DAYS
+
+logger = logging.getLogger(__name__)
+
+arcface_model = None
+
+
+def load_arcface_model():
+    """Загружает модель ArcFace для распознавания лиц."""
+    global arcface_model
+    if arcface_model is None:
+        arcface_model = FaceAnalysis(providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        arcface_model.prepare(ctx_id=0, det_size=(640, 640))
+        logger.info("ArcFace model loaded and ready.")
+
+
+def get_device():
+    """
+    Определяет доступное устройство (GPU или CPU).
+
+    Использует CUDA, если оно доступно, в противном случае использует CPU.
+
+    Returns:
+        torch.device: Возвращает устройство для выполнения операций (GPU или CPU).
+    """
+    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def load_image_from_memory(file):
+    """
+    Загружает изображение из InMemoryUploadedFile и конвертирует его в numpy array.
+
+    Использует OpenCV для чтения изображения из загруженного файла. Преобразует
+    изображение в формат numpy array для дальнейшей обработки.
+
+    Args:
+        file (InMemoryUploadedFile): Файл, загруженный через Django.
+
+    Returns:
+        numpy.ndarray: Изображение в виде массива numpy.
+
+    Raises:
+        ValidationError: Если не удается прочитать изображение.
+    """
+    try:
+        file_bytes = np.frombuffer(file.read(), np.uint8)
+        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+        if image is None:
+            raise ValidationError("Невозможно прочитать изображение.")
+        return image
+    except Exception as e:
+        logger.error(f"Ошибка при чтении изображения: {e}")
+        raise ValidationError(f"Ошибка чтения изображения: {str(e)}")
+
+
+def create_face_encoding(image_file):
+    """
+    Создает face encoding (закодированное лицо) для изображения с использованием ArcFace.
+
+    Args:
+        image_file (str, numpy.ndarray или InMemoryUploadedFile): Путь к изображению, numpy array или загруженный файл.
+
+    Returns:
+        list: Закодированное лицо (embedding) в виде списка чисел.
+
+    Raises:
+        ValidationError: Если не удается создать encoding для изображения.
+    """
+    try:
+        load_arcface_model()
+
+        if isinstance(image_file, str):
+            img = cv2.imread(image_file)
+
+        elif isinstance(image_file, np.ndarray):
+            img = image_file
+
+        else:
+            img = load_image_from_memory(image_file)
+
+        faces = arcface_model.get(img)
+        if not faces:
+            raise ValidationError("Лицо не найдено на изображении")
+
+        return faces[0].embedding.tolist()
+
+    except Exception as e:
+        logger.error(f"Ошибка при создании encoding: {e}")
+        raise ValidationError(f"Ошибка создания encoding: {str(e)}")
+
+
+def compare_face(staff, image_file):
+    """
+    Сравнивает лицо сотрудника с новым изображением, используя косинусное расстояние.
+
+    Эта функция получает ранее сохраненное закодированное лицо сотрудника и сравнивает
+    его с закодированным лицом, созданным на основе нового изображения. Для сравнения
+    используется косинусное расстояние.
+
+    Args:
+        staff (Staff): Сотрудник, чье лицо сравнивается.
+        image_file (InMemoryUploadedFile): Новое изображение для сравнения.
+
+    Returns:
+        tuple: (verified, cosine_distance), где verified — это boolean (True, если лица совпадают),
+        а cosine_distance — это фактическое расстояние.
+
+    Raises:
+        ValidationError: Если возникает ошибка при сравнении лиц.
+    """
+    try:
+        stored_mask = np.array(staff.face_mask.mask_encoding)
+        new_encoding = create_face_encoding(image_file)
+
+        cosine_distance = cosine_similarity([stored_mask], [new_encoding])[0][0]
+
+        cosine_distance = (1 + cosine_distance) / 2
+
+        threshold = settings.FACE_RECOGNITION_THRESHOLD
+
+        verified = cosine_distance > threshold
+
+        return verified, cosine_distance
+    except Exception as e:
+        logger.error(f"Ошибка при сравнении лица: {e}")
+        raise ValidationError(f"Ошибка сравнения лица: {str(e)}")
+
+
+def compare_face_with_nn(staff, image_file):
+    try:
+        load_arcface_model()
+        stored_mask = np.array(staff.face_mask.mask_encoding)
+
+        new_encoding = create_face_encoding(image_file)
+
+        cosine_distance = cosine_similarity([stored_mask], [new_encoding])[0][0]
+        cosine_distance = (1 + cosine_distance) / 2
+
+        threshold = settings.FACE_RECOGNITION_THRESHOLD
+        verified = cosine_distance > threshold
+
+        logger.info(f"Face comparison using ArcFace: cosine distance = {cosine_distance}")
+
+        return verified, cosine_distance
+    except Exception as e:
+        logger.error(f"Ошибка при сравнении лица с нейронной сетью: {e}")
+        raise ValidationError(f"Ошибка при сравнении лица с нейронной сетью: {str(e)}")
 
 
 def get_client_ip(request):
