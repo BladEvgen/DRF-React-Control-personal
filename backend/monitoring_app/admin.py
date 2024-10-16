@@ -18,6 +18,7 @@ from monitoring_app.models import (
     AbsentReason,
     FileCategory,
     PublicHoliday,
+    StaffFaceMask,
     ChildDepartment,
     StaffAttendance,
     LessonAttendance,
@@ -299,12 +300,17 @@ class StaffAdmin(admin.ModelAdmin):
         "full_name",
         "department",
         "display_positions",
+        "needs_training_status",
         "avatar_thumbnail",
     )
-    list_filter = (DepartmentHierarchyFilter, "positions")
+    list_filter = (DepartmentHierarchyFilter, "positions", "needs_training")
     search_fields = ("pin", "surname", "name", "department__name")
     filter_horizontal = ("positions",)
-    actions = ["clear_avatars", "assign_position"]
+    actions = [
+        "clear_avatars",
+        "assign_position",
+        "mark_needs_training_true",
+    ]
     ordering = ("-pin", "-department", "surname", "name")
     inlines = [SalaryInline, AbsentReasonInline, RemoteWorkInline]
     readonly_fields = ("pin", "avatar_thumbnail")
@@ -320,6 +326,12 @@ class StaffAdmin(admin.ModelAdmin):
             "Должность и отдел",
             {
                 "fields": ("department", "positions"),
+            },
+        ),
+        (
+            "Машинное обучение",
+            {
+                "fields": ("needs_training",),
             },
         ),
     )
@@ -354,15 +366,50 @@ class StaffAdmin(admin.ModelAdmin):
 
     avatar_thumbnail.short_description = "Фото"
 
-    def clear_avatars(self, request, queryset):
-        queryset.update(avatar=None)
+    def needs_training_status(self, obj):
+        return "Нуждается в тренировке" if obj.needs_training else "Тренировка не требуется"
 
-    clear_avatars.short_description = "Очистить фото выбранных сотрудников"
+    needs_training_status.short_description = "Статус тренировки"
 
     def display_positions(self, obj):
         return ", ".join(position.name for position in obj.positions.all())
 
     display_positions.short_description = "Должности"
+
+    def clear_avatars(self, request, queryset):
+        queryset.update(avatar=None)
+
+    clear_avatars.short_description = "Очистить фото выбранных сотрудников"
+
+    def mark_needs_training_true(self, request, queryset):
+        queryset.update(needs_training=True)
+        self.message_user(
+            request,
+            "Статус 'Нуждается в тренировке' был изменён на 'True' для выбранных сотрудников.",
+        )
+
+    mark_needs_training_true.short_description = (
+        "Установить 'Нуждается в тренировке' для выбранных сотрудников"
+    )
+
+
+# === Маски Пользователей ===
+
+
+@admin.register(StaffFaceMask)
+class StaffFaceMaskAdmin(admin.ModelAdmin):
+    list_display = ('staff', 'created_at')
+    search_fields = ('staff__name', 'staff__surname', 'staff__pin')
+    readonly_fields = ('created_at',)
+    list_filter = ('created_at',)
+
+    def staff_department(self, obj):
+        return obj.staff.department
+
+    staff_department.short_description = "Отдел"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('staff')
 
 
 # === Посещаемость сотрудников ===
