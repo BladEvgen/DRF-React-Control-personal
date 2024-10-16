@@ -307,3 +307,4 @@ backend/old_data-12-09-24.json
 /backend/static/media/control_image
 *.pkl
 *.db
+backend/monitoring_app/test_face.py
