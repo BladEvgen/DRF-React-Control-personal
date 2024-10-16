@@ -305,3 +305,5 @@ backend/old_data-12-09-24.json
 /backend/static/media/absence_documents
 *.json
 /backend/static/media/control_image
+*.pkl
+*.db
