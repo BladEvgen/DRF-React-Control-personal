@@ -69,6 +69,8 @@ urlpatterns = [
         views.password_reset_confirm_view,
         name="password_reset_confirm",
     ),
+    path('verify-face/', views.verify_face, name='verify-face'),
+    path("recognize-faces/", views.recognize_faces, name="recognize-faces"),
 ]
 
 urlpatterns += doc_urls

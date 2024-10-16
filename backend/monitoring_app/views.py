@@ -3486,3 +3486,107 @@ def password_reset_confirm_view(request, token):
             return redirect("password_reset_confirm", token=token)
 
     return render(request, "password_reset_confirm.html", {"token": token})
+
+
+@api_view(['POST'])
+def verify_face(request):
+    staff_pin = request.data.get("pin")
+    staff_image = request.FILES.get("image")
+
+    logger.info(f"Начало процесса верификации для PIN: {staff_pin}")
+
+    if not staff_pin or not staff_image:
+        logger.warning(f"Параметры PIN или изображение не предоставлены для PIN: {staff_pin}")
+        return Response(
+            {"error": "Необходимо указать pin и изображение"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        staff = models.Staff.objects.get(pin=staff_pin)
+        logger.info(f"Сотрудник найден для PIN: {staff_pin}")
+    except models.Staff.DoesNotExist:
+        logger.error(f"Сотрудник с PIN {staff_pin} не найден")
+        return Response({"error": "Сотрудник не найден"}, status=status.HTTP_404_NOT_FOUND)
+
+    if not hasattr(staff, 'face_mask'):
+        logger.error(f"Маска для сотрудника с PIN {staff_pin} не найдена")
+        return Response(
+            {"error": "Маска для данного сотрудника не найдена"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        logger.info(f"Сравнение лиц для PIN: {staff_pin}")
+        verified, distance = utils.compare_face_with_nn(staff, staff_image)
+
+        logger.info(
+            f"Верификация завершена для PIN: {staff_pin} - Verified: {verified}, Distance: {distance}"
+        )
+        return Response({"verified": verified, "distance": distance}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error(f"Ошибка при сравнении лиц для PIN {staff_pin}: {str(e)}")
+        return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+def recognize_faces(request):
+    staff_image = request.FILES.get("image")
+
+    if not staff_image:
+        logger.warning("Изображение не предоставлено")
+        return Response({"error": "Необходимо предоставить изображение"}, status=400)
+
+    try:
+        utils.load_arcface_model()
+
+        img = utils.load_image_from_memory(staff_image)
+        faces = utils.arcface_model.get(img)
+
+        if not faces:
+            return Response({"error": "Лица не найдены на изображении"}, status=400)
+
+        recognized_staff = []
+        unknown_faces = []
+
+        for face in faces:
+            face_embedding = face.embedding.tolist()
+            bbox = face.bbox
+            recognized = False
+
+            for staff in models.Staff.objects.filter(face_mask__isnull=False):
+                stored_mask = staff.face_mask.mask_encoding
+                cosine_distance = utils.cosine_similarity([stored_mask], [face_embedding])[0][0]
+                cosine_distance = (1 + cosine_distance) / 2
+
+                if cosine_distance > settings.FACE_RECOGNITION_THRESHOLD:
+                    recognized_staff.append(
+                        {
+                            "pin": staff.pin,
+                            "name": staff.name,
+                            "surname": staff.surname,
+                            "department": staff.department.name if staff.department else None,
+                            "distance": cosine_distance,
+                            "bbox": [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])],
+                        }
+                    )
+                    recognized = True
+                    break
+
+            if not recognized:
+                unknown_faces.append(
+                    {
+                        "status": "unknown",
+                        "bbox": [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])],
+                    }
+                )
+
+        if not recognized_staff and not unknown_faces:
+            return Response({"error": "Сотрудники не найдены"}, status=404)
+
+        return Response(
+            {"recognized_staff": recognized_staff, "unknown_faces": unknown_faces}, status=200
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при распознавании лиц: {str(e)}")
+        return Response({"error": f"Ошибка при распознавании лиц: {str(e)}"}, status=500)
