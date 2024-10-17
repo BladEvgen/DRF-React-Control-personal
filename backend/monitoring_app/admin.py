@@ -1,3 +1,5 @@
+import os
+from django.conf import settings
 from django.contrib import admin
 from django.utils import timezone
 from django.utils.html import format_html
@@ -398,18 +400,88 @@ class StaffAdmin(admin.ModelAdmin):
 
 @admin.register(StaffFaceMask)
 class StaffFaceMaskAdmin(admin.ModelAdmin):
-    list_display = ('staff', 'created_at')
+    list_display = ('staff', 'staff_department', 'created_at', 'updated_at', 'staff_avatar')
     search_fields = ('staff__name', 'staff__surname', 'staff__pin')
-    readonly_fields = ('created_at',)
-    list_filter = ('created_at',)
+    readonly_fields = (
+        'created_at',
+        'updated_at',
+        'mask_encoding',
+        'staff',
+        'staff_avatar',
+        'augmented_images',
+    )
+    list_filter = ('created_at', 'updated_at', 'staff__department')
+    ordering = (
+        'staff__department',
+        '-updated_at',
+    )
+
+    def staff_avatar(self, obj):
+        if obj.staff.avatar:
+            return format_html(
+                '<img src="{}" width="100" height="100" style="border-radius: 50%;" />',
+                obj.staff.avatar.url,
+            )
+        return "No Avatar"
+
+    staff_avatar.short_description = "Аватар сотрудника"
+
+    def augmented_images(self, obj):
+        augmented_dir = str(settings.AUGMENT_ROOT).format(staff_pin=obj.staff.pin)
+
+        if os.path.exists(augmented_dir):
+            images_html = ""
+            for i in range(11):
+                filename = f'{obj.staff.pin}_augmented_{i}.jpg'
+                file_path = os.path.join(augmented_dir, filename)
+
+                file_url = os.path.join(
+                    settings.AUGMENT_URL, obj.staff.pin, 'augmented_images', filename
+                )
+
+                if os.path.exists(file_path):
+                    images_html += (
+                        f'<img src="{file_url}" width="80" height="80" style="margin: 5px;" />'
+                    )
+            return format_html(images_html)
+
+        return "No Augmented Images"
+
+    augmented_images.short_description = "Аугментированные фото"
 
     def staff_department(self, obj):
         return obj.staff.department
 
     staff_department.short_description = "Отдел"
+    staff_department.admin_order_field = 'staff__department'
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('staff')
+
+    fieldsets = (
+        (
+            None,
+            {
+                'fields': (
+                    'staff',
+                    'staff_avatar',
+                    'augmented_images',
+                )
+            },
+        ),
+        (
+            'Временные метки',
+            {
+                'fields': ('created_at', 'updated_at'),
+            },
+        ),
+        (
+            'Encoded Faces',
+            {
+                'fields': ('mask_encoding',),
+            },
+        ),
+    )
 
 
 # === Посещаемость сотрудников ===
