@@ -184,11 +184,7 @@ def augment_user_images(remove_old_files=False):
             if image is None:
                 raise ValueError(f"Failed to load image for {staff.pin}")
 
-            output_dir = (
-                os.path.join(settings.AUGMENT_ROOT, staff.pin)
-                if not settings.DEBUG
-                else os.path.join(os.path.dirname(image_path), 'augmented_images')
-            )
+            output_dir = os.path.join(str(settings.AUGMENT_ROOT).format(staff_pin=staff.pin))
             os.makedirs(output_dir, exist_ok=True)
 
             if remove_old_files:

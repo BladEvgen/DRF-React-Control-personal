@@ -197,7 +197,10 @@ ATTENDANCE_URL = "/attendance_media/"
 ATTENDANCE_ROOT = "/mnt/disk/control_image/"
 
 AUGMENT_URL = '/augment_media/'
-AUGMENT_ROOT = '/mnt/disk/augment_images/'
+if DEBUG:
+    AUGMENT_ROOT = Path(MEDIA_ROOT / 'user_images' / '{staff_pin}' / 'augmented_images')
+else:
+    AUGMENT_ROOT = '/mnt/disk/augment_images/augmented_images/{staff_pin}'
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -290,7 +293,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     'augment-images-every-day': {
         'task': 'monitoring_app.tasks.augment_user_images',
-        'schedule': crontab(hour=2, minute=0),
+        'schedule': crontab(day_of_month='*/3', hour=1, minute=0),
     },
 }
 
