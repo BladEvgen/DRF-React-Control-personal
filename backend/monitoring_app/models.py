@@ -340,7 +340,8 @@ def delete_avatar_on_staff_delete(sender, instance, **kwargs):
 class StaffFaceMask(models.Model):
     staff = models.OneToOneField(Staff, on_delete=models.CASCADE, related_name="face_mask")
     mask_encoding = models.JSONField(verbose_name="Encoded_faces", blank=False, null=False)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Дата создания")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Дата обновления")
 
     class Meta:
         verbose_name = "Маска лица сотрудника"
@@ -353,7 +354,7 @@ class StaffFaceMask(models.Model):
 @receiver(post_save, sender=Staff)
 def handle_staff_avatar_change(sender, instance, created, **kwargs):
     if created or (instance.avatar and instance.avatar != Staff.objects.get(pk=instance.pk).avatar):
-        tasks.train_or_update_staff_model.delay(instance.pk)
+        tasks.augment_user_images.delay()
 
 
 class AbsentReason(models.Model):
