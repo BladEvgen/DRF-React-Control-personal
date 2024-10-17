@@ -4,7 +4,6 @@ from monitoring_app.utils import create_face_encoding
 from django.core.exceptions import ObjectDoesNotExist
 from monitoring_app.models import Staff, StaffFaceMask
 
-
 class Command(BaseCommand):
     help = 'Создать маски для всех сотрудников и запустить обучение модели'
 
@@ -12,6 +11,9 @@ class Command(BaseCommand):
         staffs = Staff.objects.filter(avatar__isnull=False)
         total_created = 0
         total_updated = 0
+        error_logs = []
+        updated_staff = []
+        created_staff = []
 
         for staff in staffs:
             try:
@@ -23,23 +25,35 @@ class Command(BaseCommand):
                 )
 
                 if created:
-                    self.stdout.write(self.style.SUCCESS(f'Маска создана для {staff.pin}'))
+                    created_staff.append(staff.pin)
                     total_created += 1
                 else:
-                    self.stdout.write(self.style.SUCCESS(f'Маска обновлена для {staff.pin}'))
+                    updated_staff.append(staff.pin)
                     total_updated += 1
 
             except ObjectDoesNotExist:
-                self.stderr.write(self.style.ERROR(f'Не удалось найти аватар для {staff.pin}'))
+                error_logs.append(f'Не удалось найти аватар для {staff.pin}')
             except Exception as e:
-                self.stderr.write(self.style.ERROR(f'Ошибка для {staff.pin}: {str(e)}'))
+                error_logs.append(f'Ошибка для {staff.pin}: {str(e)}')
 
         if total_created > 0 or total_updated > 0:
             self.stdout.write(
                 self.style.SUCCESS(
-                    f'Создано {total_created} масок, обновлено {total_updated}. Запуск обучения модели...'
+                    f'Создано {total_created} масок, обновлено {total_updated} масок.'
                 )
             )
+            if created_staff:
+                self.stdout.write(
+                    self.style.SUCCESS(f'Созданы маски для сотрудников: {", ".join(created_staff)}')
+                )
+            if updated_staff:
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f'Обновлены маски для сотрудников: {", ".join(updated_staff)}'
+                    )
+                )
+
+            self.stdout.write(self.style.SUCCESS('Запуск обучения модели...'))
             augment_user_images.delay()
         else:
             self.stdout.write(
@@ -47,3 +61,7 @@ class Command(BaseCommand):
                     'Маски не были созданы или обновлены, обучение модели не запущено.'
                 )
             )
+
+        if error_logs:
+            error_message = '\n'.join(error_logs)
+            self.stdout.write(self.style.ERROR(f'Ошибки при выполнении:\n{error_message}'))
