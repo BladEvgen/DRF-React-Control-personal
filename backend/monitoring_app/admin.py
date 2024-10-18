@@ -371,7 +371,7 @@ class StaffAdmin(admin.ModelAdmin):
     def needs_training_status(self, obj):
         return "Нуждается в тренировке" if obj.needs_training else "Тренировка не требуется"
 
-    needs_training_status.short_description = "Статус тренировки"
+    needs_training_status.short_description = "Статус тренировки ML"
 
     def display_positions(self, obj):
         return ", ".join(position.name for position in obj.positions.all())
@@ -410,7 +410,11 @@ class StaffFaceMaskAdmin(admin.ModelAdmin):
         'staff_avatar',
         'augmented_images',
     )
-    list_filter = ('created_at', 'updated_at', 'staff__department')
+    list_filter = (
+        'created_at',
+        'updated_at',
+        utils.HierarchicalDepartmentFilter,
+    )
     ordering = (
         'staff__department',
         '-updated_at',
