@@ -215,7 +215,7 @@ def augment_user_images(remove_old_files=False):
 
             negative_embeddings = generate_negative_samples(staff)
 
-            train_machine_learning_model(staff, embeddings, negative_embeddings)
+            utils.train_face_recognition_model(staff, embeddings, negative_embeddings)
 
             staff.needs_training = False
             staff.save()
@@ -232,38 +232,6 @@ def augment_user_images(remove_old_files=False):
         "failed_augmentations": error_count,
         "error_log": error_logs,
     }
-
-
-def train_machine_learning_model(staff, embeddings, negative_embeddings):
-    try:
-        avatar_dir = os.path.dirname(staff.avatar.path)
-        model_path = os.path.join(avatar_dir, f'{staff.pin}_model.pkl')
-
-        if os.path.exists(model_path):
-            model = joblib.load(model_path)
-            logger.info(f"Loading existing model for {staff.pin}")
-        else:
-            model = svm.SVC(kernel='linear', probability=True)
-            logger.info(f"Creating new model for {staff.pin}")
-
-        scaler = StandardScaler()
-        embeddings = scaler.fit_transform(embeddings)
-        negative_embeddings = scaler.fit_transform(negative_embeddings)
-
-        labels = [1] * len(embeddings) + [0] * len(negative_embeddings)
-        embeddings_combined = np.vstack([embeddings, negative_embeddings])
-
-        if len(set(labels)) < 2:
-            raise ValueError("The number of classes has to be greater than one; got 1 class")
-
-        model.fit(embeddings_combined, labels)
-
-        joblib.dump(model, model_path)
-        logger.info(f"Model for {staff.pin} saved at {model_path}")
-
-    except Exception as e:
-        logger.error(f"Error training model for {staff.pin}: {str(e)}")
-        raise e
 
 
 def initialize_log_file():
