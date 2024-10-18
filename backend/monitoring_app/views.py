@@ -34,6 +34,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from celery.result import AsyncResult
+import torch
 from monitoring_app import models, permissions, serializers, utils, tasks
 
 logger = logging.getLogger(__name__)
@@ -3493,36 +3494,33 @@ def verify_face(request):
     staff_pin = request.data.get("pin")
     staff_image = request.FILES.get("image")
 
-    logger.info(f"Начало процесса верификации для PIN: {staff_pin}")
-
     if not staff_pin or not staff_image:
-        logger.warning(f"Параметры PIN или изображение не предоставлены для PIN: {staff_pin}")
         return Response(
             {"error": "Необходимо указать pin и изображение"}, status=status.HTTP_400_BAD_REQUEST
         )
 
     try:
         staff = models.Staff.objects.get(pin=staff_pin)
-        logger.info(f"Сотрудник найден для PIN: {staff_pin}")
     except models.Staff.DoesNotExist:
-        logger.error(f"Сотрудник с PIN {staff_pin} не найден")
         return Response({"error": "Сотрудник не найден"}, status=status.HTTP_404_NOT_FOUND)
 
     if not hasattr(staff, 'face_mask'):
-        logger.error(f"Маска для сотрудника с PIN {staff_pin} не найдена")
         return Response(
             {"error": "Маска для данного сотрудника не найдена"}, status=status.HTTP_400_BAD_REQUEST
         )
 
     try:
         logger.info(f"Сравнение лиц для PIN: {staff_pin}")
-        verified, distance = utils.compare_face_with_nn(staff, staff_image)
+        model = utils.load_model_for_staff(staff)
 
-        logger.info(
-            f"Верификация завершена для PIN: {staff_pin} - Verified: {verified}, Distance: {distance}"
-        )
-        return Response({"verified": verified, "distance": distance}, status=status.HTTP_200_OK)
+        new_encoding = utils.create_face_encoding(staff_image)
+        input_tensor = torch.tensor([new_encoding], dtype=torch.float32).to(utils.get_device())
 
+        output = model(input_tensor).item()
+        threshold = settings.FACE_RECOGNITION_THRESHOLD
+        verified = output > threshold
+
+        return Response({"verified": verified, "distance": output}, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Ошибка при сравнении лиц для PIN {staff_pin}: {str(e)}")
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -3534,7 +3532,9 @@ def recognize_faces(request):
 
     if not staff_image:
         logger.warning("Изображение не предоставлено")
-        return Response({"error": "Необходимо предоставить изображение"}, status=400)
+        return Response(
+            {"error": "Необходимо предоставить изображение"}, status=status.HTTP_400_BAD_REQUEST
+        )
 
     try:
         utils.load_arcface_model()
@@ -3543,7 +3543,9 @@ def recognize_faces(request):
         faces = utils.arcface_model.get(img)
 
         if not faces:
-            return Response({"error": "Лица не найдены на изображении"}, status=400)
+            return Response(
+                {"error": "Лица не найдены на изображении"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         recognized_staff = []
         unknown_faces = []
@@ -3581,12 +3583,16 @@ def recognize_faces(request):
                 )
 
         if not recognized_staff and not unknown_faces:
-            return Response({"error": "Сотрудники не найдены"}, status=404)
+            return Response({"error": "Сотрудники не найдены"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(
-            {"recognized_staff": recognized_staff, "unknown_faces": unknown_faces}, status=200
+            {"recognized_staff": recognized_staff, "unknown_faces": unknown_faces},
+            status=status.HTTP_200_OK,
         )
 
     except Exception as e:
         logger.error(f"Ошибка при распознавании лиц: {str(e)}")
-        return Response({"error": f"Ошибка при распознавании лиц: {str(e)}"}, status=500)
+        return Response(
+            {"error": f"Ошибка при распознавании лиц: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
